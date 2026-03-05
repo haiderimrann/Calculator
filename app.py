@@ -2,6 +2,7 @@ import ast
 import html
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Simple Calculator", page_icon=":abacus:")
 
@@ -128,12 +129,8 @@ st.markdown(
 
 if "expression" not in st.session_state:
     st.session_state.expression = ""
-if "keyboard_typed" not in st.session_state:
-    st.session_state.keyboard_typed = ""
 if "error_text" not in st.session_state:
     st.session_state.error_text = ""
-if "last_keyboard_eval" not in st.session_state:
-    st.session_state.last_keyboard_eval = ""
 
 
 def normalize_expression(text: str) -> str:
@@ -195,7 +192,6 @@ def evaluate_current_expression() -> None:
         result = safe_eval(normalized)
         formatted = format_result(result)
         st.session_state.expression = formatted
-        st.session_state.keyboard_typed = formatted
         st.session_state.error_text = ""
     except ZeroDivisionError as err:
         st.session_state.error_text = str(err)
@@ -206,62 +202,23 @@ def evaluate_current_expression() -> None:
 def press(value: str) -> None:
     if value == "C":
         st.session_state.expression = ""
-        st.session_state.keyboard_typed = ""
         st.session_state.error_text = ""
-        st.session_state.last_keyboard_eval = ""
         return
 
     if value == "BACK":
         st.session_state.expression = st.session_state.expression[:-1]
-        st.session_state.keyboard_typed = st.session_state.expression
         st.session_state.error_text = ""
-        st.session_state.last_keyboard_eval = ""
         return
 
     if value == "=":
         evaluate_current_expression()
-        st.session_state.last_keyboard_eval = ""
         return
 
+    if value == "*":
+        value = "x"
     st.session_state.expression += value
-    st.session_state.keyboard_typed = st.session_state.expression
     st.session_state.error_text = ""
-    st.session_state.last_keyboard_eval = ""
 
-
-def sync_from_keyboard() -> None:
-    raw = st.session_state.keyboard_typed
-    normalized = normalize_expression(raw)
-
-    if normalized != raw:
-        st.session_state.keyboard_typed = normalized
-
-    if not normalized:
-        st.session_state.expression = ""
-        st.session_state.error_text = ""
-        st.session_state.last_keyboard_eval = ""
-        return
-
-    if normalized.endswith("="):
-        if st.session_state.last_keyboard_eval != normalized:
-            st.session_state.expression = normalized[:-1]
-            st.session_state.keyboard_typed = st.session_state.expression
-            evaluate_current_expression()
-            st.session_state.last_keyboard_eval = normalized
-        return
-
-    st.session_state.last_keyboard_eval = ""
-    if normalized != st.session_state.expression:
-        st.session_state.expression = normalized
-        st.session_state.error_text = ""
-
-
-st.text_input(
-    "Keyboard input (+ - * /, parentheses, and '=' to evaluate)",
-    key="keyboard_typed",
-    placeholder="Example: 12+7*3 or 14/2=",
-)
-sync_from_keyboard()
 
 st.markdown(
     f"<div class='display-box'>{html.escape(st.session_state.expression or '0')}</div>",
@@ -289,3 +246,55 @@ for row_index, row in enumerate(buttons):
             args=(value,),
             use_container_width=True,
         )
+
+components.html(
+    """
+    <script>
+    (() => {
+      const doc = window.parent.document;
+
+      function norm(text) {
+        return (text || "").replace(/\\s+/g, " ").trim();
+      }
+
+      function findButtonByLabel(label) {
+        const buttons = Array.from(doc.querySelectorAll("button"));
+        return buttons.find((btn) => norm(btn.innerText) === label);
+      }
+
+      function mapKeyToLabel(key) {
+        if (/^[0-9]$/.test(key)) return key;
+        if (key === ".") return ".";
+        if (key === "+") return "+";
+        if (key === "-") return "-";
+        if (key === "/") return "/";
+        if (key === "*" || key === "x" || key === "X") return "x";
+        if (key === "Enter" || key === "=") return "=";
+        if (key === "Backspace") return "<-";
+        if (key === "Escape") return "C";
+        return null;
+      }
+
+      function onKeydown(event) {
+        const tag = (event.target && event.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea") return;
+
+        const label = mapKeyToLabel(event.key);
+        if (!label) return;
+
+        const btn = findButtonByLabel(label);
+        if (!btn) return;
+        event.preventDefault();
+        btn.click();
+      }
+
+      if (window.parent.__calcKeyboardClickListener) {
+        doc.removeEventListener("keydown", window.parent.__calcKeyboardClickListener);
+      }
+      doc.addEventListener("keydown", onKeydown);
+      window.parent.__calcKeyboardClickListener = onKeydown;
+    })();
+    </script>
+    """,
+    height=0,
+)
